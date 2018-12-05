@@ -28,6 +28,7 @@ defmodule OnyxEx.Loader do
 
     get_project_file()
     |> get_project_path()
+    |> file_exists?()
     |> validate_extension()
     |> load_file()
     |> IO.inspect()
@@ -59,6 +60,14 @@ defmodule OnyxEx.Loader do
     {:error, err}
   end
 
+  defp file_exists?({:ok, path}) do
+    if File.exists?(path), do: {:ok, path}, else: {:error, "#{path} doesn't exist"}
+  end
+
+  defp file_exists?({:error, err}) do
+    {:error, err}
+  end
+
   defp validate_extension({:ok, path}) do
     if path =~ ~r/\.ya?ml$/ do
       {:ok, path}
@@ -82,11 +91,34 @@ defmodule OnyxEx.Loader do
   defp process_project_file({:ok, loaded}) do
     app_config = get_app_config(loaded) |> IO.inspect(label: "App config")
     apps_config = get_apps_config(loaded) |> IO.inspect(label: "Apps config")
-    included = Map.get(loaded, "include", []) |> IO.inspect(label: "Included files")
-    {:ok, nil}
+
+    included =
+      Map.get(loaded, "include", [])
+      |> IO.inspect(label: "Included files")
+      |> Enum.map(fn file_name ->
+        {:ok, file_name}
+        |> get_project_path()
+        |> file_exists?()
+        |> validate_extension()
+        |> load_file()
+        |> process_included_file()
+      end)
+      |> IO.inspect(label: "Included files (loaded)")
+
+    {:ok, %{app: app_config, apps: apps_config}}
   end
 
   defp process_project_file({:error, err}) do
+    {:error, err}
+  end
+
+  defp process_included_file({:ok, loaded}) do
+    app_config = get_app_config(loaded) |> IO.inspect(label: "Included App config")
+    apps_config = get_apps_config(loaded) |> IO.inspect(label: "Included Apps config")
+    {:ok, %{app: app_config, apps: apps_config}}
+  end
+
+  defp process_included_file({:error, err}) do
     {:error, err}
   end
 
