@@ -81,7 +81,10 @@ defmodule OnyxEx.Loader do
   end
 
   defp load_file({:ok, path}) do
-    YamlElixir.read_from_file(path)
+    case YamlElixir.read_from_file(path) do
+      {:ok, loaded} -> {:ok, loaded}
+      {:error, err} -> {:error, "Error loading file #{path}: #{err}"}
+    end
   end
 
   defp load_file({:error, err}) do
@@ -89,12 +92,11 @@ defmodule OnyxEx.Loader do
   end
 
   defp process_project_file({:ok, loaded}) do
-    app_config = get_app_config(loaded) |> IO.inspect(label: "App config")
-    apps_config = get_apps_config(loaded) |> IO.inspect(label: "Apps config")
+    app_config = get_app_config(loaded)
+    apps_config = get_apps_config(loaded)
 
     included =
       Map.get(loaded, "include", [])
-      |> IO.inspect(label: "Included files")
       |> Enum.map(fn file_name ->
         {:ok, file_name}
         |> get_project_path()
@@ -103,9 +105,20 @@ defmodule OnyxEx.Loader do
         |> load_file()
         |> process_included_file()
       end)
-      |> IO.inspect(label: "Included files (loaded)")
 
-    {:ok, %{app: app_config, apps: apps_config}}
+    case Enum.find(included, fn {atom, _} -> atom == :error end) do
+      nil ->
+        %{
+          app: app_config,
+          apps: apps_config,
+          included: Enum.map(included, fn {:ok, inc} -> inc end)
+        }
+        |> IO.inspect(label: "Before merge")
+        |> merge()
+
+      {:error, err} ->
+        {:error, err}
+    end
   end
 
   defp process_project_file({:error, err}) do
@@ -113,8 +126,8 @@ defmodule OnyxEx.Loader do
   end
 
   defp process_included_file({:ok, loaded}) do
-    app_config = get_app_config(loaded) |> IO.inspect(label: "Included App config")
-    apps_config = get_apps_config(loaded) |> IO.inspect(label: "Included Apps config")
+    app_config = get_app_config(loaded)
+    apps_config = get_apps_config(loaded)
     {:ok, %{app: app_config, apps: apps_config}}
   end
 
@@ -137,8 +150,83 @@ defmodule OnyxEx.Loader do
 
   defp get_apps_config(loaded) do
     case Map.get(loaded, "apps") do
-      nil -> %{}
-      apps -> Enum.map(apps, fn {name, app} -> {name, Map.get(app, "config", %{})} end)
+      nil ->
+        %{}
+
+      apps ->
+        apps |> Enum.map(fn {name, app} -> {name, Map.get(app, "config", %{})} end) |> Map.new()
     end
+  end
+
+  defp merge(%{app: app, apps: apps, included: included}) do
+    with {:ok, app} <- merge_app(app, Enum.map(included, & &1.app)),
+         {:ok, apps} <- merge_apps(apps, Enum.map(included, & &1.apps)) do
+      {:ok, %{app: app, apps: apps}}
+    end
+  end
+
+  defp merge_app(app, included) do
+    Enum.reduce(included, {:ok, app}, fn
+      inc, {:ok, app} ->
+        merge_included_app(app, inc)
+
+      _inc, {:error, err} ->
+        {:error, err}
+    end)
+  end
+
+  defp merge_included_app(app, included_app) do
+    Enum.reduce(included_app, {:ok, app}, fn
+      {key, val}, {:ok, app} ->
+        if Map.has_key?(app, key) do
+          case app[key] do
+            map when is_map(map) ->
+              if is_map(val) do
+                {:ok, %{app | key => Map.merge(map, val)}}
+              else
+                {:error, "Incompatible config value types (found string and map). Key: #{key}"}
+              end
+
+            _str ->
+              unless is_map(val) do
+                {:ok, %{app | key => val}}
+              else
+                {:error, "Incompatible config value types (found string and map). Key: #{key}"}
+              end
+          end
+        else
+          {:ok, Map.put(app, key, val)}
+        end
+
+      _, {:error, err} ->
+        {:error, err}
+    end)
+  end
+
+  defp merge_apps(apps, included) do
+    Enum.reduce(included, {:ok, apps}, fn
+      inc, {:ok, apps} ->
+        merge_included_apps(apps, inc)
+
+      _inc, {:error, err} ->
+        {:error, err}
+    end)
+  end
+
+  defp merge_included_apps(apps, included_apps) do
+    Enum.reduce(included_apps, {:ok, apps}, fn
+      {name, app}, {:ok, apps} ->
+        if Map.has_key?(apps, name) do
+          case merge_included_app(apps[name], app) do
+            {:ok, app} -> {:ok, %{apps | name => app}}
+            {:error, err} -> {:error, err}
+          end
+        else
+          {:ok, Map.put(apps, name, app)}
+        end
+
+      _, {:error, err} ->
+        {:error, err}
+    end)
   end
 end
