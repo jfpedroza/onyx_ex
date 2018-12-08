@@ -15,7 +15,8 @@ defmodule OnyxEx.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
 
-    :onyx = :ets.new(:onyx, [:named_table, {:read_concurrency, true}, :public, :protected])
+    OnyxEx.get_app!()
+    :onyx = :ets.new(:onyx, [:named_table, {:read_concurrency, true}, :protected])
     OnyxEx.Loader.load!()
     opts = [strategy: :one_for_one, name: OnyxEx.Supervisor]
     Supervisor.start_link(children, opts)
@@ -24,16 +25,13 @@ end
 
 defmodule OnyxEx.Loader do
   def load() do
-    get_app!() |> IO.inspect()
-
     get_project_file()
     |> get_project_path()
     |> file_exists?()
     |> validate_extension()
     |> load_file()
-    |> IO.inspect()
     |> process_project_file()
-    |> IO.inspect()
+    |> push_into_ets()
   end
 
   def load!() do
@@ -41,11 +39,6 @@ defmodule OnyxEx.Loader do
       {:ok, result} -> result
       {:error, err} -> raise "Error loading configuration: #{err}"
     end
-  end
-
-  defp get_app!() do
-    Application.get_env(:onyx_ex, :app) ||
-      raise ":app must be set. Make sure to put config :onyx_ex, app: :my_app in config.exs"
   end
 
   defp get_project_file() do
@@ -113,7 +106,6 @@ defmodule OnyxEx.Loader do
           apps: apps_config,
           included: Enum.map(included, fn {:ok, inc} -> inc end)
         }
-        |> IO.inspect(label: "Before merge")
         |> merge()
 
       {:error, err} ->
@@ -136,13 +128,9 @@ defmodule OnyxEx.Loader do
   end
 
   defp get_app_config(loaded) do
-    case Map.get(loaded, "app") do
-      nil -> %{}
-      app -> Map.get(app, "config", %{})
-    end
-
     if {:ok, app} = Map.fetch(loaded, "app") do
       Map.get(app, "config", %{})
+      |> make_key_atoms()
     else
       %{}
     end
@@ -154,8 +142,26 @@ defmodule OnyxEx.Loader do
         %{}
 
       apps ->
-        apps |> Enum.map(fn {name, app} -> {name, Map.get(app, "config", %{})} end) |> Map.new()
+        apps
+        |> Enum.map(fn {name, app} ->
+          {String.to_atom(name), Map.get(app, "config", %{}) |> make_key_atoms()}
+        end)
+        |> Map.new()
     end
+  end
+
+  defp make_key_atoms(config) do
+    config
+    |> Map.new(fn {key, val} ->
+      {String.to_atom(key),
+       case val do
+         val when is_map(val) ->
+           Map.new(val, fn {sub_key, sub_val} -> {String.to_atom(sub_key), sub_val} end)
+
+         val ->
+           val
+       end}
+    end)
   end
 
   defp merge(%{app: app, apps: apps, included: included}) do
@@ -228,5 +234,23 @@ defmodule OnyxEx.Loader do
       _, {:error, err} ->
         {:error, err}
     end)
+  end
+
+  defp push_into_ets({:ok, loaded}) do
+    Enum.map(loaded.app, fn {key, val} ->
+      :ets.insert(:onyx, {{:_app, key}, val})
+    end)
+
+    Enum.map(loaded.apps, fn {name, app} ->
+      Enum.map(app, fn {key, val} ->
+        :ets.insert(:onyx, {{name, key}, val})
+      end)
+    end)
+
+    {:ok, nil}
+  end
+
+  defp push_into_ets({:error, err}) do
+    {:error, err}
   end
 end
