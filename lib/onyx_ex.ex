@@ -79,6 +79,10 @@ defmodule OnyxEx do
   end
 
   defp do_get(app = :_app, key) do
+    if :ets.whereis(:onyx) == :undefided do
+      OnyxEx.Loader.load!()
+    end
+
     case :ets.lookup(:onyx, {app, key}) do
       [{{^app, ^key}, val}] ->
         case get_format() do
@@ -93,6 +97,10 @@ defmodule OnyxEx do
   end
 
   defp do_get(app, key) do
+    if :ets.whereis(:onyx) == :undefided do
+      OnyxEx.Loader.load!()
+    end
+
     case :ets.lookup(:onyx, {app, key}) do
       [{{^app, ^key}, val}] -> {:ok, val}
       [] -> do_get(:_app, key)
