@@ -102,8 +102,15 @@ defmodule OnyxEx do
     end
 
     case :ets.lookup(:onyx, {app, key}) do
-      [{{^app, ^key}, val}] -> {:ok, val}
-      [] -> do_get(:_app, key)
+      [{{^app, ^key}, val}] ->
+        case get_format() do
+          :map -> {:ok, val}
+          :keyword -> {:ok, Keyword.new(val)}
+          format -> raise "Invalid format #{format}. Allowed: :map, :keyword"
+        end
+
+      [] ->
+        do_get(:_app, key)
     end
   end
 
