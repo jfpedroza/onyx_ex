@@ -131,11 +131,13 @@ defmodule OnyxEx.Loader do
   end
 
   defp get_app_config(loaded) do
-    if {:ok, app} = Map.fetch(loaded, "app") do
-      Map.get(app, "config", %{})
-      |> make_key_atoms()
-    else
-      %{}
+    case Map.fetch(loaded, "app") do
+      {:ok, app} ->
+        Map.get(app, "config", %{})
+        |> make_key_atoms()
+
+      :error ->
+        %{}
     end
   end
 
