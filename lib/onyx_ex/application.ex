@@ -16,7 +16,6 @@ defmodule OnyxEx.Application do
     # for other strategies and supported options
 
     OnyxEx.get_app!()
-    :onyx = :ets.new(:onyx, [:named_table, {:read_concurrency, true}, :protected])
     OnyxEx.Loader.load!()
     opts = [strategy: :one_for_one, name: OnyxEx.Supervisor]
     Supervisor.start_link(children, opts)
@@ -25,6 +24,10 @@ end
 
 defmodule OnyxEx.Loader do
   def load() do
+    if :ets.whereis(:onyx) == :undefined do
+      :onyx = :ets.new(:onyx, [:named_table, {:read_concurrency, true}, :protected])
+    end
+
     get_project_file()
     |> get_project_path()
     |> file_exists?()
