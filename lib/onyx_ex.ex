@@ -79,7 +79,7 @@ defmodule OnyxEx do
   end
 
   defp do_get(app = :_app, key) do
-    if :ets.whereis(:onyx) == :undefided do
+    if :ets.whereis(:onyx) == :undefined do
       OnyxEx.Loader.load!()
     end
 
@@ -97,7 +97,7 @@ defmodule OnyxEx do
   end
 
   defp do_get(app, key) do
-    if :ets.whereis(:onyx) == :undefided do
+    if :ets.whereis(:onyx) == :undefined do
       OnyxEx.Loader.load!()
     end
 
