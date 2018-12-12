@@ -45,23 +45,19 @@ defmodule OnyxEx.Loader do
   end
 
   defp get_project_file() do
-    {:ok, Application.get_env(:onyx_ex, :project, "onyx.yml")}
+    Application.get_env(:onyx_ex, :project, "onyx.yml")
   end
 
-  defp get_project_path({:ok, file}) do
-    {:ok, Path.expand(file)}
+  defp get_project_path(file, dir) do
+    Path.expand(file, dir)
   end
 
-  defp get_project_path({:error, err}) do
-    {:error, err}
+  defp get_project_path(file) do
+    Path.expand(file)
   end
 
-  defp file_exists?({:ok, path}) do
+  defp file_exists?(path) do
     if File.exists?(path), do: {:ok, path}, else: {:error, "#{path} doesn't exist"}
-  end
-
-  defp file_exists?({:error, err}) do
-    {:error, err}
   end
 
   defp validate_extension({:ok, path}) do
@@ -91,11 +87,13 @@ defmodule OnyxEx.Loader do
     app_config = get_app_config(loaded)
     apps_config = get_apps_config(loaded)
 
+    dir = get_project_file() |> get_project_path() |> Path.dirname()
+
     included =
       Map.get(loaded, "include", [])
       |> Enum.map(fn file_name ->
-        {:ok, file_name}
-        |> get_project_path()
+        file_name
+        |> get_project_path(dir)
         |> file_exists?()
         |> validate_extension()
         |> load_file()
